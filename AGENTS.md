@@ -336,16 +336,73 @@ fue un nombre asumido antes de crear nada):
         del pipeline en vez de desaparecer en silencio. Calcula `raw_value`/`normalized_value`
         con la fórmula de la sección 3.1. `expect_or_drop` (no `_or_fail`) porque acá el problema
         es de una fila puntual, no del catálogo entero.
-- [ ] **Próximo paso inmediato**: todavía no se corrió `databricks bundle deploy -t dev` +
-      `databricks bundle run hubble_learning_bi_pipeline` contra datos reales — Bronze/Silver
-      están escritos pero sin validar end-to-end. Hacer esto antes de seguir con Gold.
-- [ ] **Fase 4 (Gold)** — 5 tablas, ver sección 5 para el detalle de cada una. Ninguna debe
-      conservar `child_id`; aplicar el umbral de ≥20 niños (sección 4) explícitamente en
-      `agg_scores_by_segment` y en cualquier otra tabla segmentada.
-- [ ] Dashboard AI/BI
+- [x] **Fase 4 (Gold) completa** — 5 tablas en `src/gold/`, todas `@dp.materialized_view()` con
+      lectura **batch** (`spark.read.table`, nunca `.readStream`) de sus fuentes — regla de
+      Lakeflow: agregaciones sobre una fuente streaming necesitan MV con lectura batch:
+      - **El helper `_apply_min_group_size(df, group_cols, relabel_cols, child_id_col)` está
+        duplicado a propósito en cada uno de los 4 archivos que lo usan** (no es un módulo
+        compartido) — se evaluó un módulo compartido vía `environment: dependencies:
+        [--editable ...]` en el pipeline.yml, pero se descartó por depender de un mecanismo de
+        import no probado sin desplegar. Si en algún momento se confirma que ese import funciona,
+        se puede refactorizar a un solo módulo — hasta entonces, **cualquier cambio a la lógica
+        del umbral hay que replicarlo a mano en las 4 tablas**: `agg_scores_by_cohort`,
+        `agg_scores_by_segment`, `funnel_completion`, `gap_analysis_summary`.
+      - `agg_scores_by_cohort`: bucketea `year_month` a `"other"` si `(year_month, category)`
+        tiene <20 niños; `category` nunca se pisa (catálogo fijo de 9, no es demográfico).
+      - `agg_scores_by_segment`: bucketea las 5 columnas demográficas juntas
+        (`region, locale, relationship_to_child, child_gender, age_band`) — nunca una sola
+        suelta, porque la combinación es lo que identifica, no una dimensión aislada.
+      - `funnel_completion`: umbral de "completó encuesta" = **≥25 de 30 preguntas** (no 30/30
+        inventado por mí — es el gate real documentado en 3.2, el mismo que determina si el niño
+        tiene fila en `skill_priorities`).
+      - `gap_analysis_summary`: usa el mapeo `skill_id → category` de la sección 3.3 (decisión
+        tomada en esta sesión, no preexistente). Niños cuya prioridad #1 sea una de las 5 skills
+        sin mapear quedan excluidos del cálculo (`INNER JOIN`, no cuentan ni a favor ni en contra).
+      - `dq_pipeline_observability`: la única sin el umbral de ≥20 (no agrupa niños). Lee
+        `raw_survey_responses` (Bronze) directo, no pasa por Silver, porque necesita ver los datos
+        sucios/duplicados para poder contarlos.
+      - `raw_skill_priorities` (Bronze) se lee **directo** desde `funnel_completion` y
+        `gap_analysis_summary` sin pasar por Silver — no existe (ni se creó) un
+        `fact_skill_priorities` en Silver porque AGENTS.md nunca documentó datos sucios en ese
+        CSV ni una tabla Silver para él.
+- [x] **Documentación creada**: [`medallion_architecture_overview.md`](medallion_architecture_overview.md)
+      (explicación en inglés simple de las 16 tablas y sus relaciones, para lectores no técnicos)
+      y `README.md` reescrito (orientado a un ingeniero que se suma al proyecto).
+- [x] Revisión manual completa de los 16 archivos (`src/bronze|silver|gold/*.py`) el 2026-08-11:
+      se cruzó cada `spark.read.table(...)`/`.readStream.table(...)` contra las columnas reales
+      que produce cada tabla upstream — sin inconsistencias encontradas. `databricks bundle
+      validate -t dev` en verde. **No se pudo probar en Spark real** (no hay pyspark local) —
+      quedan dos puntos de bajo riesgo sin verificar 100%: inferencia de tipo de `birth_date`
+      (usado en `months_between` en `dim_child`) y de `dt` (usado en `to_date` en
+      `dq_pipeline_observability`).
+- [x] `databricks bundle deploy -t dev` — **exitoso**, los 16 objetos están deployados como
+      definiciones reales en el workspace.
+- [ ] **BLOQUEADOR ACTUAL (2026-08-11): `databricks bundle run hubble_learning_bi_pipeline`
+      falla, no por el código.** Error: `RESOURCE_EXHAUSTED: Cannot create the resource, please
+      try again later` al crear el cluster. Diagnóstico ya descartado:
+      - No es un bug de las transformaciones (ver revisión manual arriba).
+      - No es específico de Lakeflow: el mismo error ocurre al prender el SQL warehouse
+        ("Serverless Starter Warehouse") desde la UI y desde el CLI.
+      - No es un tema de cuota de AWS propia — el usuario **nunca vinculó una cuenta de AWS
+        propia**; este workspace es infraestructura gestionada por Databricks (el `s3://` que se
+        ve en `storage_location` es de Databricks, no del usuario).
+      - No es falta de método de pago: se agregó tarjeta, plan **Premium** seleccionado y activo,
+        tarjeta sin errores en Subscription & Billing. El error persiste igual después de esperar
+        ~10 minutos y reintentar.
+      - **Conclusión: es un problema de aprovisionamiento de cómputo del lado de Databricks**,
+        fuera de lo que se puede diagnosticar o resolver desde el CLI/workspace. Pendiente de
+        soporte de Databricks.
+      - **Próximo paso apenas se resuelva**: NO correr el pipeline completo de una — primero
+        `databricks bundle run hubble_learning_bi_pipeline -t dev --validate-only` (smoke test
+        barato, valida el grafo sin procesar los 6 meses de datos), y solo si eso pasa, correr
+        sin el flag. Después, validar los datos de salida (no asumir que `COMPLETED` = correcto):
+        `databricks experimental aitools tools discover-schema` sobre `dim_child`,
+        `fact_survey_answers`, y las 5 tablas Gold — revisar tablas vacías, conteos raros, nulls
+        en columnas clave.
+- [ ] Dashboard AI/BI — no empezado, depende de validar Gold con datos reales primero.
 
 **Nota de estilo de colaboración** (no releer el historial de chat para esto — queda acá): se
 viene trabajando fase por fase, con pasos chicos, pidiendo confirmación antes de decisiones de
-diseño no obvias (vía preguntas de opción múltiple), y explicando después de cada tabla nueva
-qué hace y cómo se conecta con el resto. Mantener ese ritmo al continuar con Gold, salvo que el
-usuario pida lo contrario.
+diseño no obvias (vía preguntas de opción múltiple), y explicando después de cada tabla nueva qué
+hace y cómo se conecta con el resto. Mantener ese ritmo al retomar (validación end-to-end,
+después dashboard), salvo que el usuario pida lo contrario.

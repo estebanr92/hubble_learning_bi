@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(databricks fs *)"
+      "Bash(databricks fs *)",
+      "WebFetch(domain:www.databricks.com)"
     ]
   }
 }
