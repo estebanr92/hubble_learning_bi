@@ -1,0 +1,718 @@
+{
+  "datasets": [
+    {
+      "name": "ds_cohort",
+      "displayName": "Scores by cohort (all months)",
+      "queryLines": [
+        "SELECT year_month, category, avg_score, child_count \n",
+        "FROM agg_scores_by_cohort"
+      ]
+    },
+    {
+      "name": "ds_cohort_trend",
+      "displayName": "Scores by cohort (chronological trend)",
+      "queryLines": [
+        "SELECT year_month, category, avg_score, child_count \n",
+        "FROM agg_scores_by_cohort \n",
+        "WHERE year_month != 'other' \n",
+        "ORDER BY year_month"
+      ]
+    },
+    {
+      "name": "ds_segment",
+      "displayName": "Scores by demographic segment",
+      "queryLines": [
+        "SELECT region, locale, relationship_to_child, child_gender, age_band, category, avg_score, child_count \n",
+        "FROM agg_scores_by_segment"
+      ]
+    },
+    {
+      "name": "ds_scatter",
+      "displayName": "Parent confidence vs. other categories (by segment)",
+      "queryLines": [
+        "SELECT \n",
+        "  a.region, a.locale, a.relationship_to_child, a.child_gender, a.age_band, \n",
+        "  a.avg_score AS parent_confidence_score, \n",
+        "  b.category AS other_category, \n",
+        "  b.avg_score AS other_category_score, \n",
+        "  b.child_count \n",
+        "FROM agg_scores_by_segment a \n",
+        "JOIN agg_scores_by_segment b \n",
+        "  ON a.region = b.region AND a.locale = b.locale \n",
+        "  AND a.relationship_to_child = b.relationship_to_child \n",
+        "  AND a.child_gender = b.child_gender AND a.age_band = b.age_band \n",
+        "WHERE a.category = 'parent_confidence' AND b.category != 'parent_confidence'"
+      ]
+    },
+    {
+      "name": "ds_funnel",
+      "displayName": "Funnel completion (by cohort)",
+      "queryLines": [
+        "SELECT year_month, registered_children, completed_survey_children, chose_priorities_children, \n",
+        "       pct_completed_survey, pct_chose_priorities \n",
+        "FROM funnel_completion"
+      ],
+      "columns": [
+        {
+          "displayName": "Total Registered",
+          "description": "Total children registered across all cohorts",
+          "expression": "SUM(`registered_children`)"
+        },
+        {
+          "displayName": "Completion Rate",
+          "description": "Share of registered children who answered at least 25 of 30 questions",
+          "expression": "SUM(`completed_survey_children`) * 1.0 / SUM(`registered_children`)"
+        },
+        {
+          "displayName": "Priority Rate",
+          "description": "Share of registered children who went on to pick skill priorities",
+          "expression": "SUM(`chose_priorities_children`) * 1.0 / SUM(`registered_children`)"
+        }
+      ]
+    },
+    {
+      "name": "ds_funnel_stages",
+      "displayName": "Funnel stages (reshaped for funnel chart)",
+      "queryLines": [
+        "SELECT 1 AS stage_order, 'Registered' AS stage, SUM(registered_children) AS count FROM funnel_completion \n",
+        "UNION ALL \n",
+        "SELECT 2, 'Completed survey', SUM(completed_survey_children) FROM funnel_completion \n",
+        "UNION ALL \n",
+        "SELECT 3, 'Chose priorities', SUM(chose_priorities_children) FROM funnel_completion \n",
+        "ORDER BY stage_order"
+      ]
+    },
+    {
+      "name": "ds_gap",
+      "displayName": "Gap analysis (all months)",
+      "queryLines": [
+        "SELECT year_month, eligible_children, matching_children, pct_priority_matches_weakest \n",
+        "FROM gap_analysis_summary"
+      ],
+      "columns": [
+        {
+          "displayName": "Overall Match Rate",
+          "description": "Share of eligible children whose weakest category matched their #1 priority skill",
+          "expression": "SUM(`matching_children`) * 1.0 / SUM(`eligible_children`)"
+        }
+      ]
+    },
+    {
+      "name": "ds_gap_trend",
+      "displayName": "Gap analysis (chronological trend)",
+      "queryLines": [
+        "SELECT year_month, eligible_children, matching_children, pct_priority_matches_weakest \n",
+        "FROM gap_analysis_summary \n",
+        "WHERE year_month != 'other' \n",
+        "ORDER BY year_month"
+      ]
+    },
+    {
+      "name": "ds_dq",
+      "displayName": "Pipeline observability",
+      "queryLines": [
+        "SELECT dt, rows_ingested, ingestion_lag_days, dirty_answer_value_rows, duplicate_rows, \n",
+        "       unknown_question_rows, pct_dirty_answer_value, pct_duplicate, pct_unknown_question \n",
+        "FROM dq_pipeline_observability \n",
+        "ORDER BY dt"
+      ],
+      "columns": [
+        {
+          "displayName": "Duplicate Rate",
+          "description": "Share of ingested survey-response rows that were exact duplicates",
+          "expression": "SUM(`duplicate_rows`) * 1.0 / SUM(`rows_ingested`)"
+        },
+        {
+          "displayName": "Dirty Answer Rate",
+          "description": "Share of ingested rows with a non-canonical answer_value (typos/casing)",
+          "expression": "SUM(`dirty_answer_value_rows`) * 1.0 / SUM(`rows_ingested`)"
+        },
+        {
+          "displayName": "Unknown Question Rate",
+          "description": "Share of ingested rows referencing a question_id not in the catalog",
+          "expression": "SUM(`unknown_question_rows`) * 1.0 / SUM(`rows_ingested`)"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Overview",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# KindScreen Survey Pilot — Retrospective (Feb–Aug 2024)\n",
+                "\n",
+                "Six months of registrations and survey responses from a discontinued pilot. Every number below represents at least 20 children — no individual child ever appears in this dashboard. Use the category filter below to focus the trend and funnel on specific categories."
+              ]
+            }
+          },
+          "position": { "x": 0, "y": 0, "width": 12, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi-total-registered",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_funnel",
+                  "fields": [
+                    { "name": "measure(Total Registered)", "expression": "MEASURE(`Total Registered`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": { "fieldName": "measure(Total Registered)", "displayName": "Children Registered" }
+              },
+              "frame": { "title": "Total Registered", "showTitle": true }
+            }
+          },
+          "position": { "x": 0, "y": 3, "width": 3, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi-completion-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_funnel",
+                  "fields": [
+                    { "name": "measure(Completion Rate)", "expression": "MEASURE(`Completion Rate`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Completion Rate)",
+                  "displayName": "Completion Rate",
+                  "format": { "type": "number-percent", "decimalPlaces": { "type": "max", "places": 1 } }
+                }
+              },
+              "frame": { "title": "Survey Completion Rate", "showTitle": true }
+            }
+          },
+          "position": { "x": 3, "y": 3, "width": 3, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi-gap-match-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gap",
+                  "fields": [
+                    { "name": "measure(Overall Match Rate)", "expression": "MEASURE(`Overall Match Rate`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Overall Match Rate)",
+                  "displayName": "Match Rate",
+                  "format": { "type": "number-percent", "decimalPlaces": { "type": "max", "places": 1 } }
+                }
+              },
+              "frame": { "title": "Priority Matches Weakest Category", "showTitle": true }
+            }
+          },
+          "position": { "x": 6, "y": 3, "width": 3, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi-duplicate-rate",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_dq",
+                  "fields": [
+                    { "name": "measure(Duplicate Rate)", "expression": "MEASURE(`Duplicate Rate`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(Duplicate Rate)",
+                  "displayName": "Duplicate Rate",
+                  "format": { "type": "number-percent", "decimalPlaces": { "type": "max", "places": 2 } }
+                }
+              },
+              "frame": { "title": "Ingested Rows Duplicated", "showTitle": true }
+            }
+          },
+          "position": { "x": 9, "y": 3, "width": 3, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "filter-category",
+            "queries": [
+              {
+                "name": "ds_category",
+                "query": {
+                  "datasetName": "ds_cohort_trend",
+                  "fields": [{ "name": "category", "expression": "`category`" }],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [{ "fieldName": "category", "queryName": "ds_category", "displayName": "Category" }]
+              },
+              "frame": { "showTitle": true, "title": "Category" }
+            }
+          },
+          "position": { "x": 0, "y": 6, "width": 12, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "cohort-trend-line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cohort_trend",
+                  "fields": [
+                    { "name": "year_month", "expression": "`year_month`" },
+                    { "name": "avg_score", "expression": "`avg_score`" },
+                    { "name": "category", "expression": "`category`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": { "fieldName": "year_month", "scale": { "type": "categorical", "sort": { "by": "alphabetical" } }, "displayName": "Registration month" },
+                "y": { "fieldName": "avg_score", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 }, "displayName": "Avg score (0=difficulty, 2=strength)" },
+                "color": { "fieldName": "category", "scale": { "type": "categorical" } }
+              },
+              "frame": { "showTitle": true, "title": "Score Trend by Cohort" }
+            }
+          },
+          "position": { "x": 0, "y": 8, "width": 7, "height": 6 }
+        },
+        {
+          "widget": {
+            "name": "funnel-chart",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_funnel_stages",
+                  "fields": [
+                    { "name": "stage", "expression": "`stage`" },
+                    { "name": "count", "expression": "`count`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 1,
+              "widgetType": "funnel",
+              "encodings": {
+                "x": { "fieldName": "stage" },
+                "y": { "fieldName": "count", "scale": { "type": "quantitative" } },
+                "color": { "fieldName": "count" }
+              },
+              "frame": { "showTitle": true, "title": "Registration → Completion → Priorities" }
+            }
+          },
+          "position": { "x": 7, "y": 8, "width": 5, "height": 6 }
+        },
+        {
+          "widget": {
+            "name": "category-bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cohort",
+                  "fields": [
+                    { "name": "category", "expression": "`category`" },
+                    { "name": "avg(avg_score)", "expression": "AVG(`avg_score`)" }
+                  ],
+                  "disaggregated": false,
+                  "orders": [{ "direction": "DESC", "expression": "AVG(`avg_score`)" }]
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": { "fieldName": "category", "scale": { "type": "categorical", "sort": { "by": "value" } } },
+                "y": { "fieldName": "avg(avg_score)", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 }, "displayName": "Avg score" }
+              },
+              "frame": { "showTitle": true, "title": "Average Score by Category (all cohorts)" }
+            }
+          },
+          "position": { "x": 0, "y": 14, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "gap-trend-line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_gap_trend",
+                  "fields": [
+                    { "name": "year_month", "expression": "`year_month`" },
+                    { "name": "pct_priority_matches_weakest", "expression": "`pct_priority_matches_weakest`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": { "fieldName": "year_month", "scale": { "type": "categorical", "sort": { "by": "alphabetical" } }, "displayName": "Registration month" },
+                "y": {
+                  "fieldName": "pct_priority_matches_weakest",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Match rate",
+                  "format": { "type": "number-percent", "decimalPlaces": { "type": "max", "places": 1 } }
+                }
+              },
+              "frame": { "showTitle": true, "title": "Gap Analysis Trend" }
+            }
+          },
+          "position": { "x": 6, "y": 14, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "ingestion-lag-line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_dq",
+                  "fields": [
+                    { "name": "dt", "expression": "`dt`" },
+                    { "name": "ingestion_lag_days", "expression": "`ingestion_lag_days`" },
+                    { "name": "rows_ingested", "expression": "`rows_ingested`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": { "fieldName": "dt", "scale": { "type": "temporal" }, "displayName": "Export date" },
+                "y": { "fieldName": "ingestion_lag_days", "scale": { "type": "quantitative" }, "displayName": "Days between export and processing" }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ingestion Backlog Cleared in One Batch Run",
+                "showDescription": true,
+                "description": "Every day of the 6-month pilot was processed in a single retrospective run — older exports show a large lag, the most recent export shows almost none."
+              }
+            }
+          },
+          "position": { "x": 0, "y": 19, "width": 12, "height": 5 }
+        }
+      ]
+    },
+    {
+      "name": "demographics",
+      "displayName": "Demographics",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-region",
+            "queries": [
+              {
+                "name": "ds_region",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [{ "name": "region", "expression": "`region`" }],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": { "fields": [{ "fieldName": "region", "queryName": "ds_region", "displayName": "Region" }] },
+              "frame": { "showTitle": true, "title": "Region" }
+            }
+          },
+          "position": { "x": 0, "y": 0, "width": 4, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "filter-age-band",
+            "queries": [
+              {
+                "name": "ds_age_band",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [{ "name": "age_band", "expression": "`age_band`" }],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": { "fields": [{ "fieldName": "age_band", "queryName": "ds_age_band", "displayName": "Age Band" }] },
+              "frame": { "showTitle": true, "title": "Age Band" }
+            }
+          },
+          "position": { "x": 4, "y": 0, "width": 4, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "filter-relationship",
+            "queries": [
+              {
+                "name": "ds_relationship",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [{ "name": "relationship_to_child", "expression": "`relationship_to_child`" }],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  { "fieldName": "relationship_to_child", "queryName": "ds_relationship", "displayName": "Relationship to Child" }
+                ]
+              },
+              "frame": { "showTitle": true, "title": "Relationship to Child" }
+            }
+          },
+          "position": { "x": 8, "y": 0, "width": 4, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "score-by-locale-bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    { "name": "locale", "expression": "`locale`" },
+                    { "name": "category", "expression": "`category`" },
+                    { "name": "avg(avg_score)", "expression": "AVG(`avg_score`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": { "fieldName": "locale", "scale": { "type": "categorical" } },
+                "y": { "fieldName": "avg(avg_score)", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 } },
+                "color": { "fieldName": "category", "scale": { "type": "categorical" } }
+              },
+              "frame": { "showTitle": true, "title": "Average Score by Locale" }
+            }
+          },
+          "position": { "x": 0, "y": 2, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "score-by-age-band-bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    { "name": "age_band", "expression": "`age_band`" },
+                    { "name": "category", "expression": "`category`" },
+                    { "name": "avg(avg_score)", "expression": "AVG(`avg_score`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "age_band",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": { "by": "custom-order", "orderedValues": ["0-3", "4-6", "7-9", "10-12", "13+", "unknown", "other"] }
+                  }
+                },
+                "y": { "fieldName": "avg(avg_score)", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 } },
+                "color": { "fieldName": "category", "scale": { "type": "categorical" } }
+              },
+              "frame": { "showTitle": true, "title": "Average Score by Age Band" }
+            }
+          },
+          "position": { "x": 6, "y": 2, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "score-by-relationship-bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    { "name": "relationship_to_child", "expression": "`relationship_to_child`" },
+                    { "name": "category", "expression": "`category`" },
+                    { "name": "avg(avg_score)", "expression": "AVG(`avg_score`)" }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": { "fieldName": "relationship_to_child", "scale": { "type": "categorical" } },
+                "y": { "fieldName": "avg(avg_score)", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 } },
+                "color": { "fieldName": "category", "scale": { "type": "categorical" } }
+              },
+              "frame": { "showTitle": true, "title": "Average Score by Relationship to Child" }
+            }
+          },
+          "position": { "x": 0, "y": 7, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "parent-confidence-scatter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_scatter",
+                  "fields": [
+                    { "name": "parent_confidence_score", "expression": "`parent_confidence_score`" },
+                    { "name": "other_category_score", "expression": "`other_category_score`" },
+                    { "name": "other_category", "expression": "`other_category`" },
+                    { "name": "child_count", "expression": "`child_count`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": { "fieldName": "parent_confidence_score", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 }, "displayName": "Parent confidence score" },
+                "y": { "fieldName": "other_category_score", "scale": { "type": "quantitative", "domainMin": 0, "domainMax": 2 }, "displayName": "Other category score" },
+                "size": { "fieldName": "child_count", "scale": { "type": "quantitative" } },
+                "color": { "fieldName": "other_category", "scale": { "type": "categorical" } }
+              },
+              "frame": { "showTitle": true, "title": "Parent Confidence vs. Other Categories (by segment)" }
+            }
+          },
+          "position": { "x": 6, "y": 7, "width": 6, "height": 5 }
+        },
+        {
+          "widget": {
+            "name": "segment-detail-table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    { "name": "region", "expression": "`region`" },
+                    { "name": "locale", "expression": "`locale`" },
+                    { "name": "relationship_to_child", "expression": "`relationship_to_child`" },
+                    { "name": "child_gender", "expression": "`child_gender`" },
+                    { "name": "age_band", "expression": "`age_band`" },
+                    { "name": "category", "expression": "`category`" },
+                    { "name": "avg_score", "expression": "`avg_score`" },
+                    { "name": "child_count", "expression": "`child_count`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  { "fieldName": "region", "displayName": "Region" },
+                  { "fieldName": "locale", "displayName": "Locale" },
+                  { "fieldName": "relationship_to_child", "displayName": "Relationship" },
+                  { "fieldName": "child_gender", "displayName": "Gender" },
+                  { "fieldName": "age_band", "displayName": "Age Band" },
+                  { "fieldName": "category", "displayName": "Category" },
+                  { "fieldName": "avg_score", "displayName": "Avg Score" },
+                  { "fieldName": "child_count", "displayName": "Children (>=20)" }
+                ]
+              },
+              "frame": { "showTitle": true, "title": "Segment Detail" }
+            }
+          },
+          "position": { "x": 0, "y": 12, "width": 12, "height": 7 }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": { "light": "#FCFCFC", "dark": "#1F272D" },
+      "widgetBackgroundColor": { "light": "#FFFFFF", "dark": "#11171C" },
+      "widgetBorderColor": { "light": "#FFFFFF", "dark": "#11171C" },
+      "fontColor": { "light": "#11171C", "dark": "#E8ECF0" },
+      "selectionColor": { "light": "#2272B4", "dark": "#8ACAFF" },
+      "visualizationColors": [
+        "#4E79A7", "#F28E2C", "#E15759", "#76B7B2", "#59A14F",
+        "#EDC949", "#AF7AA1", "#FF9DA7", "#9C755F"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

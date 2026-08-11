@@ -34,6 +34,8 @@ Bundle](https://docs.databricks.com/dev-tools/bundles/index.html).
 - `src/bronze/`, `src/silver/`, `src/gold/`: the pipeline's transformations, one Python file per
   table, following the medallion layers.
 - `resources/`: the Lakeflow Pipeline resource definition (Databricks Asset Bundle).
+- `dashboards/`: the AI/BI dashboard definition (`hubble_learning_bi.lvdash.json`), deployed via
+  `databricks lakeview` — see AGENTS.md section 8 for status and the deploy commands.
 - `tests/`: unit tests for shared Python code.
 - `fixtures/`: local sample data fixtures.
 - `databricks.yml`: the bundle definition — targets, catalog/schema variables, workspace config.
@@ -43,7 +45,13 @@ Bundle](https://docs.databricks.com/dev-tools/bundles/index.html).
 Bronze, Silver, and Gold are fully written (16 tables/views) and pass `databricks bundle
 validate`. End-to-end validation against real data is currently blocked on a Databricks-side
 compute provisioning issue on this workspace (open with Databricks support) — see AGENTS.md
-section 8 for the live status. The dashboard has not been built yet.
+section 8 for the live status.
+
+The dashboard (`dashboards/hubble_learning_bi.lvdash.json`) is written — 2 pages, 9 datasets, 19
+widgets covering cohort trends, demographic segments, funnel, gap analysis, and pipeline
+observability — but **not yet tested or deployed**, since testing its queries requires the same
+SQL warehouse blocked by the issue above. Do not deploy it until each dataset query has been run
+against real data first (see AGENTS.md section 8 for the exact validation steps).
 
 ## Working with this project
 

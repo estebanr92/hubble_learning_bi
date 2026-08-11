@@ -399,7 +399,42 @@ fue un nombre asumido antes de crear nada):
         `databricks experimental aitools tools discover-schema` sobre `dim_child`,
         `fact_survey_answers`, y las 5 tablas Gold — revisar tablas vacías, conteos raros, nulls
         en columnas clave.
-- [ ] Dashboard AI/BI — no empezado, depende de validar Gold con datos reales primero.
+- [x] **Dashboard AI/BI — JSON escrito, `dashboards/hubble_learning_bi.lvdash.json`, pero
+      NO PROBADO NI DESPLEGADO** (usa la skill `databricks-aibi-dashboards`). Se avanzó esto
+      mientras se esperaba la resolución del bloqueador de cómputo, porque el diseño/escritura del
+      JSON no lo necesita — pero **probar cada query y desplegar sí necesitan el SQL warehouse**,
+      el mismo recurso bloqueado arriba. No tocar este archivo como si estuviera validado.
+      - 2 páginas: **Overview** (header, 4 KPIs, filtro de categoría, tendencia por cohorte,
+        funnel, bar chart por categoría, tendencia de gap analysis, tendencia de `ingestion_lag_days`
+        — esta última cuenta la historia real: el backlog de 6 meses procesado en una sola corrida)
+        y **Demographics** (3 filtros demográficos, bar charts por locale/age_band/relationship,
+        scatter `parent_confidence` vs. resto de categorías, tabla de detalle por segmento).
+      - 9 datasets (`ds_cohort`, `ds_cohort_trend`, `ds_segment`, `ds_scatter`, `ds_funnel`,
+        `ds_funnel_stages`, `ds_gap`, `ds_gap_trend`, `ds_dq`) sobre las 5 tablas Gold. Los
+        datasets `*_trend` filtran `WHERE year_month != 'other'` — el bucket `other` del umbral
+        de k-anonimato rompería el orden cronológico de una línea de tendencia si se dejara
+        adentro; los datasets sin `_trend` sí lo incluyen (correcto para KPIs/barras que no son
+        series de tiempo).
+      - Validación estática ya hecha (JSON parseable, cada `queries.fields[].name` matchea su
+        `encodings.fieldName`, cada fila del grid de 12 columnas suma exactamente 12 sin huecos)
+        — con un script Python ad-hoc, no con Spark real.
+      - **Lo que falta, en orden, apenas el warehouse esté disponible** (no saltarse el orden —
+        la skill es explícita: nunca desplegar sin probar antes):
+        1. `databricks warehouses list` → confirmar el `warehouse_id` a usar (`40e1ba5c351856d9`,
+           "Serverless Starter Warehouse", salvo que se haya creado otro).
+        2. Probar **cada una** de las 9 queries de los datasets con
+           `databricks experimental aitools tools query --warehouse <WH_ID> "..."` — confirmar
+           que corren y que los resultados tienen sentido de negocio (no solo que no fallan).
+        3. Recién ahí desplegar:
+           ```
+           databricks lakeview create --display-name "KindScreen Survey Pilot — Retrospective" \
+             --warehouse-id <WH_ID> --dataset-catalog hubble_learning --dataset-schema dev \
+             --serialized-dashboard "$(cat dashboards/hubble_learning_bi.lvdash.json)" \
+             --json '{"parent_path": "/Workspace/Users/eramonleon92@gmail.com/dashboards"}'
+           ```
+        4. `databricks lakeview publish <DASHBOARD_ID> --warehouse-id <WH_ID>` para publicarlo.
+        5. Para cambios futuros: editar el JSON y usar `lakeview update` + `publish` sobre el
+           mismo `DASHBOARD_ID` — nunca volver a correr `create` (crea un dashboard duplicado).
 
 **Nota de estilo de colaboración** (no releer el historial de chat para esto — queda acá): se
 viene trabajando fase por fase, con pasos chicos, pidiendo confirmación antes de decisiones de
