@@ -435,6 +435,35 @@ fue un nombre asumido antes de crear nada):
         4. `databricks lakeview publish <DASHBOARD_ID> --warehouse-id <WH_ID>` para publicarlo.
         5. Para cambios futuros: editar el JSON y usar `lakeview update` + `publish` sobre el
            mismo `DASHBOARD_ID` — nunca volver a correr `create` (crea un dashboard duplicado).
+- [x] **`uv` instalado + `uv sync --dev`** corrido — el proyecto ya tiene `.venv/` local con
+      `databricks-connect`, `databricks-dlt`, `pytest`, etc. instalados (según `pyproject.toml`).
+- [x] **Tests unitarios locales escritos en `tests/` (4 archivos), pero NUNCA EJECUTADOS** —
+      solo colección de pytest verificada (`uv run pytest --collect-only tests/` → 25 tests
+      descubiertos sin errores de import/fixtures), **ninguna aserción corrió todavía**:
+      - `conftest.py`: fixture `spark` (SparkSession local) + helper `import_pipeline_module`
+        que stubea `pyspark.pipelines` (no existe fuera del runtime de Lakeflow) para poder
+        importar los archivos reales de `src/` e inyectarles el global `spark`.
+      - `test_gold_min_group_size.py`: importa y testea el `_apply_min_group_size` **real** de
+        las 4 tablas Gold que lo duplican (parametrizado sobre los 4 archivos) — además de
+        probar la lógica, detecta si las 4 copias dejan de ser idénticas entre sí con el tiempo.
+      - `test_scoring_formula.py` y `test_age_band_bucketing.py`: **NO** importan las funciones
+        reales (`fact_survey_answers()`/`dim_child()` leen de `spark.readStream.table(...)`,
+        mockear un stream es más complejo que un batch read) — mantienen una **copia manual** de
+        la misma expresión `F.when(...)` y la comparan contra la tabla de verdad completa. Si la
+        fórmula real cambia en `src/silver/fact_survey_answers.py` o `dim_child.py`, hay que
+        actualizar la copia acá también o el test deja de detectar regresiones reales.
+      - **Por qué no se pudieron correr de verdad**: `databricks-connect` (la dependencia de test
+        que ya trae este proyecto) **siempre** necesita un cluster/serverless remoto real para
+        crear una `SparkSession` — confirmado con un intento real (`Exception: Cluster id or
+        serverless are required but were not specified`). O sea, correr estos tests con el
+        entorno actual del proyecto pega contra el mismo bloqueador de cómputo de más arriba.
+        Ejecutarlos de verdad requiere un **venv separado** con `pyspark` puro (PyPI, no
+        `databricks-connect` — los dos paquetes chocan en el mismo entorno) — no se armó ese
+        segundo entorno todavía, decisión explícita del usuario (2026-08-11) de no invertir ahí
+        y esperar a que Databricks resuelva el bloqueador real en cambio.
+      - **Próximo paso, si se retoma este camino**: `python3 -m venv .venv-pytest-local &&
+        source .venv-pytest-local/bin/activate && pip install pyspark pytest && pytest tests/`
+        desde la raíz del proyecto (ese venv separado nunca se creó).
 
 **Nota de estilo de colaboración** (no releer el historial de chat para esto — queda acá): se
 viene trabajando fase por fase, con pasos chicos, pidiendo confirmación antes de decisiones de

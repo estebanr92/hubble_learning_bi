@@ -36,7 +36,7 @@ Bundle](https://docs.databricks.com/dev-tools/bundles/index.html).
 - `resources/`: the Lakeflow Pipeline resource definition (Databricks Asset Bundle).
 - `dashboards/`: the AI/BI dashboard definition (`hubble_learning_bi.lvdash.json`), deployed via
   `databricks lakeview` — see AGENTS.md section 8 for status and the deploy commands.
-- `tests/`: unit tests for shared Python code.
+- `tests/`: unit tests for shared Python code. Written but never executed — see Status below.
 - `fixtures/`: local sample data fixtures.
 - `databricks.yml`: the bundle definition — targets, catalog/schema variables, workspace config.
 
@@ -52,6 +52,14 @@ widgets covering cohort trends, demographic segments, funnel, gap analysis, and 
 observability — but **not yet tested or deployed**, since testing its queries requires the same
 SQL warehouse blocked by the issue above. Do not deploy it until each dataset query has been run
 against real data first (see AGENTS.md section 8 for the exact validation steps).
+
+`tests/` has 4 files (25 tests) covering the k-anonymity threshold logic and the scoring/age-band
+formulas, written the same day as the blocker above. They pass pytest's collection step (no
+import/fixture errors) but **no assertion has actually run** — this project's test dependency,
+`databricks-connect`, needs a live cluster/serverless endpoint to create a `SparkSession` at all,
+so running these hits the same blocker. Running them for real needs a separate venv with plain
+PyPI `pyspark` instead (it conflicts with `databricks-connect` in the same environment) — see
+AGENTS.md section 8.
 
 ## Working with this project
 
@@ -89,7 +97,8 @@ uv sync --dev
    databricks bundle run hubble_learning_bi_pipeline
    ```
 
-4. Run tests locally:
-   ```
-   uv run pytest
-   ```
+4. Run tests: **not possible in this project's own `.venv` yet** — its `databricks-connect`
+   dependency needs a live cluster/serverless endpoint to create a `SparkSession`, so `uv run
+   pytest` will fail with `Cluster id or serverless are required`. Once compute is available,
+   either point `databricks-connect` at a real cluster/serverless profile, or (to test fully
+   offline) create a separate venv with plain PyPI `pyspark` instead — see AGENTS.md section 8.
