@@ -54,8 +54,11 @@ raíz de ese otro repo.
 4. Se definieron reglas de privacidad estrictas (ver sección 4) — dato sensible: niños.
 5. Se escribió un generador en Python (`generate_mock_data.py`, solo stdlib) que simula **6
    meses de exportación diaria** (2024-02-26 a 2024-08-25) de un proceso manual que después se
-   descontinuó, y **ya se ejecutó**: generó 547 archivos CSV (~12 MB) con 2,899 niños, 81,611
-   respuestas de encuesta y 12,750 filas de prioridades de habilidades.
+   descontinuó, y **ya se ejecutó**: generó 548 archivos CSV (~12 MB) con 2,899 niños, 81,611
+   respuestas de encuesta y 12,750 filas de prioridades de habilidades. Incluye 2 catálogos
+   estáticos: `dim_questions.csv` (30 preguntas) y `dim_skills.csv` (las 15 habilidades de
+   `surveySkillOptions`, agregado después — ver sección 3.2, nota de la subida pendiente en
+   la sección 8).
 6. Esos CSVs **todavía no están en Databricks**. Viven localmente en:
    `~/Documents/Aplicaciones/kindscreen-mobile/data-pipeline-mock/raw_landing/`
    Hay que traerlos a este proyecto — copiarlos a `fixtures/` (que ya existe, vacía, parece
@@ -95,13 +98,19 @@ El mapeo completo de las 30 preguntas (id, texto EN/ES, categoría, polaridad) e
 `dim_questions.csv` que ya viene generado (ver sección 2, punto 6) — es el catálogo fuente de
 verdad, no hace falta retranscribirlo acá.
 
-#### 3.2 Los 4 archivos CSV de origen (landing zone)
+#### 3.2 Los 5 archivos CSV de origen (landing zone)
 
 Simulan un export diario incremental (tipo CDC) de un backend de la app. Ya están generados
 para 182 días (2024-02-26 a 2024-08-25), organizados en carpetas `dt=YYYY-MM-DD/`:
 
 - **`dim_questions.csv`** (estático, una sola vez): `question_id, text_en, text_es, category,
   polarity`
+- **`dim_skills.csv`** (estático, una sola vez): `skill_id, name_en, name_es` — catálogo de las
+  15 habilidades de `surveySkillOptions` (el mismo `skill_id` que aparece en
+  `skill_priorities.csv`). Antes de esto **no existía ningún catálogo de skills** en el
+  proyecto — `dim_skill` en Silver no debía inventarse a partir de los ids sueltos, ahora tiene
+  una fuente real. El id `stressManagment` reproduce un typo real del código fuente de la app
+  (`surveySkillOptions`), preservado a propósito.
 - **`child_account_updates.csv`** (uno por día): `child_id, child_gender, birth_date,
   relationship_to_child, region, locale, created_at`
 - **`survey_responses.csv`** (uno por día, long format — una fila por pregunta respondida):
@@ -121,6 +130,34 @@ Notas de realismo ya incorporadas en los datos (importan para el diseño de Silv
 - La encuesta se llena **una única vez por niño**, al registrarse — no hay reevaluaciones ni
   seguimiento longitudinal del mismo niño en el tiempo. Las tendencias del dashboard comparan
   **cohortes de fecha de registro** entre sí, nunca al mismo niño contra sí mismo.
+
+#### 3.3 Mapeo `skill_id` → `category` (para `gap_analysis_summary`)
+
+**No existía ningún mapeo entre las 15 skills de `dim_skills.csv` y las 9 categorías de la
+encuesta** — son dos taxonomías distintas (categorías = dominios de dificultad tipo SDQ; skills =
+rasgos/habilidades de vida priorizables). Se definió el 2026-08-11, durante la implementación de
+`gap_analysis_summary`, junto con el usuario — no viene del diseño original ni de
+`kindscreen-mobile`:
+
+| `skill_id` | → `category` | Confianza del match |
+|---|---|---|
+| `communication` | `communication` | Exacta (mismo nombre) |
+| `selfControl` | `self_regulation` | Fuerte |
+| `regulatingEmotions` | `self_regulation` | Fuerte |
+| `patience` | `self_regulation` | Fuerte |
+| `kindness` | `prosocial_behavior` | Fuerte |
+| `listening` | `communication` | Fuerte |
+| `stressManagment` | `emotional_symptoms` | Media |
+| `respectOthers` | `peer_relationships` | Media |
+| `workingWithOthers` | `peer_relationships` | Media |
+| `honesty` | `responsibility` | Media |
+| `openess`, `confidence`, `motivation`, `resilience`, `makingDecisions` | *(sin mapear)* | Sin fit razonable entre las 9 categorías — quedan excluidas del cálculo del gap, no forzadas |
+
+Consecuencias a tener en cuenta en cualquier tabla que use este mapeo: `conduct_problems`,
+`hyperactivity_inattention` y `parent_confidence` nunca van a aparecer como "categoría que
+coincide con la prioridad elegida" (ninguna skill mapea a esas 3); y los niños cuya prioridad
+#1 sea una de las 5 skills sin mapear quedan fuera del cálculo (no cuentan ni a favor ni en
+contra), en vez de forzarles un match falso.
 
 ### 4. Reglas de privacidad (no negociables — datos de niños)
 
@@ -162,8 +199,8 @@ mano a un Volumen de Unity Catalog** — por eso en este proyecto no hay Auto Lo
 
 El Volumen ya existe y se llama **`raw`** (dentro del catálogo/esquema de la sección 6). Los
 CSVs se subieron con su contenido directo bajo la raíz del volumen (sin wrapper
-`raw_landing/`), o sea la ruta real es `/Volumes/hubble_prod/<schema>/raw/dt=YYYY-MM-DD/...` y
-`/Volumes/hubble_prod/<schema>/raw/dim_questions.csv`.
+`raw_landing/`), o sea la ruta real es `/Volumes/hubble_learning/dev/raw/dt=YYYY-MM-DD/...` y
+`/Volumes/hubble_learning/dev/raw/dim_questions.csv`.
 
 ```
 Volumen UC (landing)          Bronze                  Silver                      Gold
@@ -202,13 +239,22 @@ del pipeline. Framing: es un análisis **retrospectivo** de un piloto de 6 meses
 
 ### 6. Catálogo y esquema reales de este proyecto
 
-Definidos en `databricks.yml` (no son placeholders, ya son los reales):
-- Catálogo: `hubble_prod` (`${var.catalog}`)
-- Esquema: `${workspace.current_user.short_name}` en `dev`, `prod` en `prod` (`${var.schema}`)
+Definidos en `databricks.yml` (no son placeholders, ya son los reales; corregidos el 2026-08-10
+tras verificar el estado real del workspace con el CLI — el catálogo `hubble_prod` nunca existió,
+fue un nombre asumido antes de crear nada):
+- Catálogo: `hubble_learning` (`${var.catalog}`)
+- Esquema: `dev` (literal, no `${workspace.current_user.short_name}`) en el target `dev`, `prod`
+  en el target `prod` (`${var.schema}`). Se hardcodeó `dev` porque este es un proyecto de
+  portfolio de un solo usuario — no hace falta la convención multi-usuario del scaffold, y el
+  volumen `raw` ya se había cargado a mano en el schema `dev`.
 - Workspace: `https://dbc-45a56bff-f3aa.cloud.databricks.com`
-- Volumen de landing: **`raw`** (ya creado). Ruta completa: `/Volumes/hubble_prod/<schema>/raw/`
-  (el `<schema>` depende del target — ver arriba). Ver sección 5 para la historia del landing
-  (Cloud Function → GCS como backstory, subida manual al Volumen en la práctica).
+- Volumen de landing: **`raw`** (ya creado). Ruta completa en `dev`: `/Volumes/hubble_learning/dev/raw/`.
+  Ver sección 5 para la historia del landing (Cloud Function → GCS como backstory, subida
+  manual al Volumen en la práctica). Contiene el set completo de **548 archivos**:
+  `dim_questions.csv` + `dim_skills.csv` (ambos en la raíz del volumen, mismo nivel) + 546
+  archivos repartidos en 182 carpetas `dt=`. `dim_skills.csv` se subió manualmente el
+  2026-08-10, después de la verificación inicial de 547 archivos — si algún chequeo previo en
+  este doc todavía dice 547, ya está desactualizado, son 548.
 
 ### 7. Funciones que debe cumplir Claude en este proyecto
 
@@ -241,7 +287,65 @@ Definidos en `databricks.yml` (no son placeholders, ya son los reales):
 - [x] 6 meses de CSVs mock generados (fuera de este proyecto, ver sección 2)
 - [x] Proyecto DAB creado (`hubble_learning_bi`)
 - [x] Volumen de landing creado (`raw`) y decidida la historia del landing (ver sección 5)
-- [ ] Confirmar que la subida de los 547 CSVs al volumen `raw` ya se completó (última acción en
-      curso al momento de escribir esto — verificar con `databricks fs ls` antes de asumir)
-- [ ] Notebooks/pipelines de Bronze → Silver → Gold
+- [x] Confirmada la subida de los 547 CSVs al volumen `raw` (verificado 2026-08-10 con
+      `databricks fs ls`)
+- [x] Subido `dim_skills.csv` al volumen `raw` (a mano, 2026-08-10, en la raíz del volumen al
+      mismo nivel que `dim_questions.csv`) — el volumen ya tiene el set completo de 548 archivos
+- [x] Repo conectado a GitHub (`github.com/estebanr92/hubble_learning_bi`, rama `main`). Sync
+      Databricks↔local es manual (`databricks bundle deploy`) cada cierto tiempo — se descartó
+      `bundle sync --watch` y CI/CD automático por decisión explícita, no aporta valor en este
+      POC de un solo usuario.
+- [x] **Fase 0** — `databricks.yml` corregido: catálogo `hubble_learning`, schema `dev`
+      (hardcodeado, no `${workspace.current_user.short_name}` — ver sección 6).
+- [x] **Fase 1** — estructura del proyecto: `resources/hubble_learning_bi_pipeline.pipeline.yml`,
+      un único recurso Lakeflow Pipeline (`hubble_learning_bi_pipeline`), serverless,
+      `continuous: false` (batch/triggered — coherente con "piloto cerrado", sin llegada de datos
+      nuevos), `libraries: glob ../src/**`. **Sin `resources/job.yml`** — se corre directo con
+      `databricks bundle run hubble_learning_bi_pipeline` (decisión explícita: un job wrapper sin
+      schedule real no aporta nada acá). Target `prod` de `databricks.yml` existe pero **no se
+      usa** — el POC vive solo en `dev` (decisión explícita).
+- [x] **Fase 2 (Bronze) completa** — 5 tablas en `src/bronze/` (un archivo Python por tabla,
+      `from pyspark import pipelines as dp`, API moderna no `import dlt`):
+      - `dim_questions`, `dim_skills`: Materialized View, lectura batch simple (catálogos
+        estáticos en la raíz del volumen, no particionados).
+      - `raw_child_updates`, `raw_survey_responses`, `raw_skill_priorities`: Streaming Table vía
+        Auto Loader, `cloudFiles.partitionColumns: "dt"` (deriva la columna `dt` del folder
+        `dt=YYYY-MM-DD/`), `pathGlobFilter` por nombre de archivo (varias tablas comparten
+        carpeta), `rescuedDataColumn`. `raw_skill_priorities` no requiere manejo especial para
+        los días sin archivo — Auto Loader simplemente no encuentra match esos días.
+      - Todas con columnas de auditoría `_ingested_at`/`_source_file`.
+- [x] **Fase 3 (Silver) completa** — 6 objetos en `src/silver/`:
+      - `dim_question`, `dim_skill`: Materialized View publicable, `expect_or_fail` en columnas
+        críticas (catálogo de referencia chico del que depende todo — falla fuerte si viene
+        roto, a diferencia de datos de un niño individual).
+      - `dim_child`: Streaming Table (grano: un niño). Deriva `age_band` desde `birth_date` con
+        `created_at` como fecha de referencia (no "hoy" — esto es retrospectivo). **Esquema de
+        bandas (decisión de negocio, rango real de la app 0-20 años):
+        `0-3, 4-6, 7-9, 10-12, 13+`**, con bucket `"unknown"` si falta el dato en vez de
+        descartar al niño entero. `birth_date` exacto y edad exacta nunca se exponen desde acá
+        en adelante (regla de la sección 4).
+      - `dim_date`: Materialized View **generada** (no viene de ningún CSV), calendario
+        `2024-02-01` a `2024-08-31` (meses completos del piloto). Se une contra fechas de
+        negocio (`created_at`, `submitted_at`), nunca contra `dt` (fecha técnica de ingesta).
+      - `stg_survey_responses_clean`: `@dp.temporary_view()` privada (no publicada a UC) —
+        limpia `answer_value` (`lower(trim(...))`, cubre `"Si"`/`"NO "`/`"A_Veces"`) y deduplica
+        por `response_row_id` (grano real de la tabla).
+      - `fact_survey_answers`: `@dp.table()` (grano: niño × pregunta). **`LEFT JOIN` con
+        `dim_question` a propósito (no `INNER JOIN`)** + `expect_or_drop("known_question", ...)`
+        — así una respuesta sin match en el catálogo queda visible en las métricas de calidad
+        del pipeline en vez de desaparecer en silencio. Calcula `raw_value`/`normalized_value`
+        con la fórmula de la sección 3.1. `expect_or_drop` (no `_or_fail`) porque acá el problema
+        es de una fila puntual, no del catálogo entero.
+- [ ] **Próximo paso inmediato**: todavía no se corrió `databricks bundle deploy -t dev` +
+      `databricks bundle run hubble_learning_bi_pipeline` contra datos reales — Bronze/Silver
+      están escritos pero sin validar end-to-end. Hacer esto antes de seguir con Gold.
+- [ ] **Fase 4 (Gold)** — 5 tablas, ver sección 5 para el detalle de cada una. Ninguna debe
+      conservar `child_id`; aplicar el umbral de ≥20 niños (sección 4) explícitamente en
+      `agg_scores_by_segment` y en cualquier otra tabla segmentada.
 - [ ] Dashboard AI/BI
+
+**Nota de estilo de colaboración** (no releer el historial de chat para esto — queda acá): se
+viene trabajando fase por fase, con pasos chicos, pidiendo confirmación antes de decisiones de
+diseño no obvias (vía preguntas de opción múltiple), y explicando después de cada tabla nueva
+qué hace y cómo se conecta con el resto. Mantener ese ritmo al continuar con Gold, salvo que el
+usuario pida lo contrario.

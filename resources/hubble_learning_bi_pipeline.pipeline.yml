@@ -1,0 +1,11 @@
+resources:
+  pipelines:
+    hubble_learning_bi_pipeline:
+      name: hubble_learning_bi_pipeline
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      continuous: false
+      libraries:
+        - glob:
+            include: ../src/**

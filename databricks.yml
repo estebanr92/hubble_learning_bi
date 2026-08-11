@@ -25,8 +25,8 @@ targets:
     workspace:
       host: https://dbc-45a56bff-f3aa.cloud.databricks.com
     variables:
-      catalog: hubble_prod
-      schema: ${workspace.current_user.short_name}
+      catalog: hubble_learning
+      schema: dev
   prod:
     mode: production
     workspace:
@@ -34,7 +34,7 @@ targets:
       # We explicitly deploy to /Workspace/Users/eramonleon92@gmail.com to make sure we only have a single copy.
       root_path: /Workspace/Users/eramonleon92@gmail.com/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: hubble_prod
+      catalog: hubble_learning
       schema: prod
     permissions:
       - user_name: eramonleon92@gmail.com
