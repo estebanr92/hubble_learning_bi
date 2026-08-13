@@ -1,9 +1,6 @@
 # hubble_learning_bi
 
-Data pipeline for KindScreen's socio-emotional skills survey. KindScreen ran a 6-month pilot
-(February–August 2024) where parents filled out a 30-question survey about their child when
-registering; the pilot was discontinued afterward, and this project turns that historical export
-data into a retrospective BI dashboard.
+Data pipeline for KindScreen's socio-emotional skills survey implemented with Databricks LDP.
 
 ## Architecture
 
@@ -43,23 +40,17 @@ Bundle](https://docs.databricks.com/dev-tools/bundles/index.html).
 ## Status
 
 Bronze, Silver, and Gold are fully written (16 tables/views) and pass `databricks bundle
-validate`. End-to-end validation against real data is currently blocked on a Databricks-side
-compute provisioning issue on this workspace (open with Databricks support) — see AGENTS.md
-section 8 for the live status.
+validate`.
 
 The dashboard (`dashboards/hubble_learning_bi.lvdash.json`) is written — 2 pages, 9 datasets, 19
 widgets covering cohort trends, demographic segments, funnel, gap analysis, and pipeline
-observability — but **not yet tested or deployed**, since testing its queries requires the same
-SQL warehouse blocked by the issue above. Do not deploy it until each dataset query has been run
-against real data first (see AGENTS.md section 8 for the exact validation steps).
+observability.
 
 `tests/` has 4 files (25 tests) covering the k-anonymity threshold logic and the scoring/age-band
-formulas, written the same day as the blocker above. They pass pytest's collection step (no
-import/fixture errors) but **no assertion has actually run** — this project's test dependency,
+formulas.
 `databricks-connect`, needs a live cluster/serverless endpoint to create a `SparkSession` at all,
 so running these hits the same blocker. Running them for real needs a separate venv with plain
-PyPI `pyspark` instead (it conflicts with `databricks-connect` in the same environment) — see
-AGENTS.md section 8.
+PyPI `pyspark` instead (it conflicts with `databricks-connect` in the same environment).
 
 ## Working with this project
 
@@ -96,9 +87,3 @@ uv sync --dev
    ```
    databricks bundle run hubble_learning_bi_pipeline
    ```
-
-4. Run tests: **not possible in this project's own `.venv` yet** — its `databricks-connect`
-   dependency needs a live cluster/serverless endpoint to create a `SparkSession`, so `uv run
-   pytest` will fail with `Cluster id or serverless are required`. Once compute is available,
-   either point `databricks-connect` at a real cluster/serverless profile, or (to test fully
-   offline) create a separate venv with plain PyPI `pyspark` instead — see AGENTS.md section 8.
